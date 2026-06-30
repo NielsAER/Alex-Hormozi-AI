@@ -36,6 +36,20 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     )
   `);
+
+  // Eén-rijige tabel met het bedrijfsprofiel van de gebruiker (altijd id = 1).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS business_profile (
+      id         INT PRIMARY KEY DEFAULT 1,
+      data       JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      CONSTRAINT business_profile_single_row CHECK (id = 1)
+    )
+  `);
+  await pool.query(
+    `INSERT INTO business_profile (id, data) VALUES (1, '{}'::jsonb)
+     ON CONFLICT (id) DO NOTHING`
+  );
 }
 
 /** Zet een JS-array om naar het pgvector literal-formaat: [1,2,3]. */

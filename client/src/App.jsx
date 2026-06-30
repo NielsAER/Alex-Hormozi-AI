@@ -3,14 +3,30 @@ import { useEffect, useRef, useState } from 'react';
 const WELCOME = {
   role: 'assistant',
   content:
-    'Klaar om te bouwen. Stel je vraag over groei, aanbod, prijzen of sales — ik antwoord op basis van jouw knowledge base.',
+    'Klaar om te bouwen. Vul eerst je bedrijfsprofiel in via "Mijn bedrijf" zodat ik je advies persoonlijk maak — stel daarna je vraag over groei, aanbod, prijzen of sales.',
   sources: [],
 };
+
+// Moet overeenkomen met PROFILE_FIELDS in de backend.
+const PROFILE_FIELDS = [
+  ['naam', 'Bedrijfsnaam', 'Bijv. Acme Coaching'],
+  ['aanbod', 'Wat verkoop je? (aanbod / product / dienst)', 'Beschrijf je belangrijkste aanbod'],
+  ['doelgroep', 'Wie is je ideale klant?', 'Voor wie is het, welk probleem los je op?'],
+  ['prijzen', 'Prijzen / pakketten', 'Bijv. €2000 eenmalig, of €297/maand'],
+  ['cijfers', 'Belangrijke cijfers (omzet, marge, klanten, CAC/LTV)', 'Bijv. €15k/maand omzet, 70% marge, 40 klanten'],
+  ['doelen', 'Je doelen', 'Bijv. €50k/maand binnen 12 maanden'],
+  ['knelpunt', 'Je grootste knelpunt op dit moment', 'Bijv. te weinig leads, lage conversie, geen tijd'],
+  ['extra', 'Overige context', 'Alles wat ik nog moet weten'],
+];
 
 export default function App() {
   const [messages, setMessages] = useState([WELCOME]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profile, setProfile] = useState({});
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
@@ -19,13 +35,39 @@ export default function App() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Auto-resize van de textarea.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [input]);
+
+  async function openProfile() {
+    setProfileOpen(true);
+    try {
+      const res = await fetch('/api/profile');
+      if (res.ok) setProfile(await res.json());
+    } catch {
+      /* laat leeg bij fout */
+    }
+  }
+
+  async function saveProfile() {
+    setSavingProfile(true);
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profile),
+      });
+      if (!res.ok) throw new Error('Opslaan mislukt');
+      setProfileOpen(false);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   async function sendMessage() {
     const text = input.trim();
@@ -41,7 +83,6 @@ export default function App() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Stuur alleen de echte conversatie mee (zonder welkomstbericht).
         body: JSON.stringify({
           messages: history
             .filter((m) => m !== WELCOME)
@@ -61,7 +102,6 @@ export default function App() {
         sources = [];
       }
 
-      // Voeg een lege assistant-bubble toe en vul die tijdens het streamen.
       setMessages((prev) => [...prev, { role: 'assistant', content: '', sources }]);
 
       const reader = res.body.getReader();
@@ -99,10 +139,13 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="logo">HM</div>
-        <div>
+        <div className="header-text">
           <h1>Hormozi Mentor</h1>
           <p>No-nonsense business coach · gegrond in jouw knowledge base</p>
         </div>
+        <button className="profile-btn" onClick={openProfile}>
+          Mijn bedrijf
+        </button>
       </header>
 
       <main className="chat" ref={scrollRef}>
@@ -150,6 +193,44 @@ export default function App() {
           Stuur
         </button>
       </footer>
+
+      {profileOpen && (
+        <div className="modal-overlay" onClick={() => setProfileOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Mijn bedrijf</h2>
+              <button className="modal-close" onClick={() => setProfileOpen(false)}>
+                ×
+              </button>
+            </div>
+            <p className="modal-intro">
+              Hoe meer je invult, hoe persoonlijker je mentor. Deze info wordt bij elk antwoord
+              meegestuurd.
+            </p>
+            <div className="modal-body">
+              {PROFILE_FIELDS.map(([key, label, placeholder]) => (
+                <label key={key} className="field">
+                  <span>{label}</span>
+                  <textarea
+                    value={profile[key] || ''}
+                    placeholder={placeholder}
+                    onChange={(e) => setProfile((p) => ({ ...p, [key]: e.target.value }))}
+                    rows={2}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button className="secondary" onClick={() => setProfileOpen(false)}>
+                Annuleren
+              </button>
+              <button onClick={saveProfile} disabled={savingProfile}>
+                {savingProfile ? 'Opslaan...' : 'Opslaan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

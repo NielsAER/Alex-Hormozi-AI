@@ -122,11 +122,23 @@ Frontend op http://localhost:5173 (Vite proxyt `/api` automatisch naar poort 300
 
 ---
 
+## Persoonlijk maken: "Mijn bedrijf"
+
+Klik in de app rechtsboven op **Mijn bedrijf** en vul je profiel in (aanbod, prijzen, cijfers,
+doelgroep, doelen, grootste knelpunt). Dit profiel wordt in de database opgeslagen en bij
+**elk** antwoord automatisch meegestuurd, zodat de mentor zijn advies concreet op jouw situatie
+afstemt (met jouw getallen) in plaats van algemene tips te geven.
+
+- De **knowledge base** (`knowledge/`) levert de Hormozi-principes via RAG.
+- Het **bedrijfsprofiel** levert jouw context — altijd actief, niet afhankelijk van retrieval.
+
 ## Hoe het werkt
 
 - **`POST /api/chat`** ontvangt de volledige gespreksgeschiedenis. De laatste gebruikersvraag
   wordt geëmbed, de top 6 meest relevante chunks worden via cosine similarity (`pgvector`)
-  opgehaald en als context in de system prompt meegegeven. Claude streamt het antwoord terug.
+  opgehaald en samen met het bedrijfsprofiel als context in de system prompt meegegeven.
+  Claude streamt het antwoord terug.
+- **`GET` / `PUT /api/profile`** halen het bedrijfsprofiel op en slaan het op.
 - De gebruikte **bronbestanden** worden via de `X-Sources`-header meegestuurd en onder elk
   AI-antwoord getoond.
 

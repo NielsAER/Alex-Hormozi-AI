@@ -118,11 +118,24 @@ if (existsSync(CLIENT_DIST)) {
 }
 
 async function start() {
-  try {
-    await initDb();
-  } catch (err) {
-    console.error('⚠️  Kon database niet initialiseren:', err.message);
+  // Probeer de DB te initialiseren met een paar retries — handig wanneer de
+  // database-container nog aan het opstarten is.
+  const maxAttempts = 10;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await initDb();
+      console.log('🗄️   Database klaar (pgvector + documents-tabel).');
+      break;
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        console.error('⚠️  Kon database niet initialiseren:', err.message);
+      } else {
+        console.log(`⏳  Wacht op database (poging ${attempt}/${maxAttempts})...`);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
   }
+
   app.listen(PORT, () => {
     console.log(`🚀  Server draait op http://localhost:${PORT}`);
   });

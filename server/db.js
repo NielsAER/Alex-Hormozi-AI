@@ -4,10 +4,14 @@ const { Pool } = pg;
 
 const connectionString = process.env.DATABASE_URL;
 
-// Replit / Neon en de meeste managed Postgres-instanties vereisen SSL.
-// Lokale databases (localhost) draaien doorgaans zonder.
+// SSL staat standaard UIT (zelf-gehoste Postgres, Docker, lokaal hebben dat niet).
+// Zet hem aan met DATABASE_SSL=true (of require) of via ?sslmode=require in de URL
+// als je een managed database gebruikt die SSL vereist.
+const sslEnv = (process.env.DATABASE_SSL || '').toLowerCase();
 const needsSsl =
-  !!connectionString && !/localhost|127\.0\.0\.1/.test(connectionString);
+  sslEnv === 'true' ||
+  sslEnv === 'require' ||
+  /sslmode=require/.test(connectionString || '');
 
 export const pool = new Pool({
   connectionString,

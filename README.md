@@ -12,72 +12,115 @@ uitsluitend op basis van die context.
 - **LLM:** Anthropic Claude (`claude-sonnet-4-6`) via `@anthropic-ai/sdk` (streaming)
 - **Embeddings:** OpenAI `text-embedding-3-small`
 - **Vector-opslag:** PostgreSQL met de `pgvector`-extensie
+- **Deployment:** Docker Compose (app + database in containers)
 
-## 1. Secrets instellen
+---
 
-De app heeft drie secrets nodig. Op **Replit** zet je deze onder **Tools → Secrets**;
-lokaal kopieer je `.env.example` naar `.env` en vul je ze in.
+## Deployen op je VPS met Docker (aanbevolen)
 
-| Variabele           | Waar vandaan                                              |
-| ------------------- | -------------------------------------------------------- |
-| `ANTHROPIC_API_KEY` | https://console.anthropic.com/                           |
-| `OPENAI_API_KEY`    | https://platform.openai.com/                             |
-| `DATABASE_URL`      | Replit: automatisch na het toevoegen van een PostgreSQL-database |
+Met Docker hoef je niets handmatig te installeren behalve Docker zelf — PostgreSQL met
+pgvector, de build van de frontend en de server worden allemaal automatisch geregeld.
 
-> **Replit:** open het paneel **Database** (of **Tools → PostgreSQL**) en klik op
-> *Create a database*. `DATABASE_URL` wordt dan automatisch als secret beschikbaar.
-> De `pgvector`-extensie en de `documents`-tabel worden automatisch aangemaakt bij het
-> draaien van het ingest-script of de server.
+### Vereisten op de VPS
 
-## 2. Installeren
+Docker Engine + de Compose-plugin. Op een verse Ubuntu/Debian VPS:
 
 ```bash
-npm run install:all
+curl -fsSL https://get.docker.com | sh
 ```
 
-Dit installeert zowel de backend- als de frontend-dependencies.
+Controleer: `docker compose version`.
 
-## 3. Documenten toevoegen
-
-Zet je bestanden (`.md`, `.txt`, `.pdf`) in de map [`/knowledge`](./knowledge).
-Er staan al twee voorbeeldbestanden in zodat je meteen kunt testen.
-
-## 4. Knowledge base inladen (ingest)
+### Stap 1 — Code op de VPS zetten
 
 ```bash
-npm run ingest
+git clone <jouw-repo-url> hormozi-mentor
+cd hormozi-mentor
+git checkout claude/hormozi-mentor-rag-app-m40skj
 ```
 
-Dit script:
-
-1. leest alle `.md`/`.txt`/`.pdf` bestanden uit `/knowledge` (PDF's via `pdf-parse`);
-2. deelt de tekst op in chunks van ~500 tokens met ~50 tokens overlap;
-3. genereert per chunk een embedding;
-4. slaat chunks + embeddings + bronbestandsnaam op in de `documents`-tabel (pgvector).
-
-Het script is **idempotent**: bij opnieuw draaien wordt de tabel eerst geleegd, dus je krijgt
-nooit duplicaten. Draai het opnieuw telkens wanneer je documenten toevoegt of wijzigt.
-
-## 5. De app starten
-
-**Ontwikkeling** (backend + Vite dev-server met hot reload):
+### Stap 2 — Secrets instellen
 
 ```bash
-npm run dev
+cp .env.example .env
+nano .env   # vul ANTHROPIC_API_KEY en OPENAI_API_KEY in
 ```
 
-- Frontend: http://localhost:5173
-- Backend:  http://localhost:3001 (Vite proxyt `/api` hier automatisch naartoe)
+`DATABASE_URL` hoef je **niet** in te vullen — Docker Compose zet die automatisch naar de
+database-container. Optioneel kun je `POSTGRES_PASSWORD` zetten voor een sterker wachtwoord.
 
-**Productie** (frontend bouwen, daarna door de Express-server serveren):
+### Stap 3 — Documenten toevoegen
+
+Zet je `.md`/`.txt`/`.pdf` bestanden in de map [`knowledge/`](./knowledge). Er staan al twee
+voorbeeldbestanden in zodat je meteen kunt testen. Deze map staat op de host en wordt in de
+container gemount — je kunt dus bestanden toevoegen zonder de image te herbouwen.
+
+### Stap 4 — Bouwen en starten
 
 ```bash
-npm run build
-npm start
+docker compose up -d --build
 ```
 
-De volledige app draait dan op http://localhost:3001 (of de `PORT` uit je omgeving — op
-Replit wordt deze automatisch gezet).
+Dit start twee containers: `db` (PostgreSQL + pgvector) en `app` (de webserver). De
+`documents`-tabel en de pgvector-extensie worden automatisch aangemaakt.
+
+### Stap 5 — Knowledge base inladen (ingest)
+
+Draai het ingest-script *in* de draaiende app-container:
+
+```bash
+docker compose exec app npm run ingest
+```
+
+Dit leest alle bestanden uit `knowledge/`, deelt ze op in chunks van ~500 tokens (met ~50
+overlap), genereert embeddings en slaat ze op in de database. Het script is **idempotent**:
+de tabel wordt eerst geleegd, dus je krijgt nooit duplicaten.
+
+> Draai stap 5 opnieuw telkens wanneer je documenten in `knowledge/` toevoegt of wijzigt.
+
+### Stap 6 — Gebruiken
+
+De app draait nu op **poort 3001** (standaard alleen op `127.0.0.1` van de VPS).
+
+- Snel testen vanaf je eigen machine via een SSH-tunnel:
+  ```bash
+  ssh -L 3001:localhost:3001 gebruiker@jouw-vps-ip
+  ```
+  Open daarna http://localhost:3001 in je browser.
+- Wil je de app **rechtstreeks publiek** bereikbaar maken op de VPS, verander dan in
+  `docker-compose.yml` de regel `'127.0.0.1:3001:3001'` in `'3001:3001'` en open poort 3001
+  in je firewall. (Voor een domein met HTTPS zet je later een reverse proxy zoals nginx
+  ervoor — laat het weten, dan voeg ik die config toe.)
+
+### Handige commando's
+
+```bash
+docker compose logs -f app      # live logs van de server
+docker compose ps               # status van de containers
+docker compose restart app      # server herstarten
+docker compose down             # alles stoppen (data blijft in het pgdata-volume)
+docker compose up -d --build    # opnieuw bouwen na code-wijzigingen
+```
+
+De database-data blijft bewaard in het Docker-volume `pgdata`, ook na `down`. Wil je echt
+alles wissen (inclusief de database): `docker compose down -v`.
+
+---
+
+## Lokale ontwikkeling (zonder Docker)
+
+Heb je Node 20+ en een eigen PostgreSQL met pgvector? Dan kun je het ook direct draaien:
+
+```bash
+npm run install:all          # installeert backend + frontend dependencies
+cp .env.example .env         # vul ANTHROPIC_API_KEY, OPENAI_API_KEY en DATABASE_URL in
+npm run ingest               # knowledge base inladen
+npm run dev                  # backend (3001) + Vite dev-server (5173) met hot reload
+```
+
+Frontend op http://localhost:5173 (Vite proxyt `/api` automatisch naar poort 3001).
+
+---
 
 ## Hoe het werkt
 
@@ -98,4 +141,6 @@ server/
   embeddings.js       ← OpenAI embeddings
   chunk.js            ← tekst opdelen in chunks
 client/               ← React (Vite) frontend
+Dockerfile            ← bouwt frontend + draait de server
+docker-compose.yml    ← app + PostgreSQL/pgvector
 ```

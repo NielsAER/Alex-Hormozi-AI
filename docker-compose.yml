@@ -1,0 +1,38 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: hormozi
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d hormozi']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/hormozi
+      PORT: 3001
+    ports:
+      # Alleen op localhost van de VPS publiceren. Zet een reverse proxy ervoor
+      # of verander dit in "3001:3001" om de poort publiek open te zetten.
+      - '127.0.0.1:3001:3001'
+    volumes:
+      # Je documenten staan op de host; zo kun je bestanden toevoegen en opnieuw
+      # ingesten zonder de image te herbouwen.
+      - ./knowledge:/app/knowledge
+    restart: unless-stopped
+
+volumes:
+  pgdata:

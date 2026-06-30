@@ -1,7 +1,7 @@
 # Hormozi Mentor — AI Business Coach (RAG)
 
 Een AI business mentor in de stijl van Alex Hormozi. De app grondt alle antwoorden in een
-eigen knowledge base met **retrieval-augmented generation (RAG)**: je vraag wordt geëmbed,
+eigen knowledge base met **retrieval-augmented generation (RAG)**: je vraag wordt doorzocht,
 de meest relevante stukken uit jouw documenten worden opgehaald, en Claude antwoordt
 uitsluitend op basis van die context.
 
@@ -9,17 +9,20 @@ uitsluitend op basis van die context.
 
 - **Backend:** Node.js + Express
 - **Frontend:** React (Vite) — donker thema, oranje accent (`#ff4f00`)
-- **LLM:** Anthropic Claude (`claude-sonnet-4-6`) via `@anthropic-ai/sdk` (streaming)
-- **Embeddings:** Voyage AI `voyage-3` (door Anthropic aanbevolen; Claude heeft geen eigen embeddings-API)
-- **Vector-opslag:** PostgreSQL met de `pgvector`-extensie
+- **LLM:** Anthropic Claude (`claude-sonnet-4-6`) via `@anthropic-ai/sdk` (streaming) — de enige externe AI-dienst
+- **Retrieval:** PostgreSQL full-text search (geen externe embeddings-dienst nodig)
 - **Deployment:** Docker Compose (app + database in containers)
+
+> Anthropic biedt geen embeddings-API, dus de RAG-retrieval gebruikt PostgreSQL's
+> ingebouwde full-text search (zoeken op trefwoorden) in plaats van semantische
+> embeddings. Zo heb je alleen een Anthropic-key nodig en geen enkele andere dienst.
 
 ---
 
 ## Deployen op je VPS met Docker (aanbevolen)
 
-Met Docker hoef je niets handmatig te installeren behalve Docker zelf — PostgreSQL met
-pgvector, de build van de frontend en de server worden allemaal automatisch geregeld.
+Met Docker hoef je niets handmatig te installeren behalve Docker zelf — de database,
+de build van de frontend en de server worden allemaal automatisch geregeld.
 
 ### Vereisten op de VPS
 
@@ -43,7 +46,7 @@ git checkout claude/hormozi-mentor-rag-app-m40skj
 
 ```bash
 cp .env.example .env
-nano .env   # vul ANTHROPIC_API_KEY en VOYAGE_API_KEY in
+nano .env   # vul ANTHROPIC_API_KEY in
 ```
 
 `DATABASE_URL` hoef je **niet** in te vullen — Docker Compose zet die automatisch naar de
@@ -61,8 +64,8 @@ container gemount — je kunt dus bestanden toevoegen zonder de image te herbouw
 docker compose up -d --build
 ```
 
-Dit start twee containers: `db` (PostgreSQL + pgvector) en `app` (de webserver). De
-`documents`-tabel en de pgvector-extensie worden automatisch aangemaakt.
+Dit start twee containers: `db` (PostgreSQL) en `app` (de webserver). De
+`documents`-tabel wordt automatisch aangemaakt.
 
 ### Stap 5 — Knowledge base inladen (ingest)
 
@@ -73,7 +76,7 @@ docker compose exec app npm run ingest
 ```
 
 Dit leest alle bestanden uit `knowledge/`, deelt ze op in chunks van ~500 tokens (met ~50
-overlap), genereert embeddings en slaat ze op in de database. Het script is **idempotent**:
+overlap), slaat ze op in de database (full-text geïndexeerd). Het script is **idempotent**:
 de tabel wordt eerst geleegd, dus je krijgt nooit duplicaten.
 
 > Draai stap 5 opnieuw telkens wanneer je documenten in `knowledge/` toevoegt of wijzigt.
@@ -106,11 +109,11 @@ alles wissen (inclusief de database): `docker compose down -v`.
 
 ## Lokale ontwikkeling (zonder Docker)
 
-Heb je Node 20+ en een eigen PostgreSQL met pgvector? Dan kun je het ook direct draaien:
+Heb je Node 20+ en een eigen PostgreSQL? Dan kun je het ook direct draaien:
 
 ```bash
 npm run install:all          # installeert backend + frontend dependencies
-cp .env.example .env         # vul ANTHROPIC_API_KEY, VOYAGE_API_KEY en DATABASE_URL in
+cp .env.example .env         # vul ANTHROPIC_API_KEY en DATABASE_URL in
 npm run ingest               # knowledge base inladen
 npm run dev                  # backend (3001) + Vite dev-server (5173) met hot reload
 ```
@@ -132,7 +135,7 @@ afstemt (met jouw getallen) in plaats van algemene tips te geven.
 ## Hoe het werkt
 
 - **`POST /api/chat`** ontvangt de volledige gespreksgeschiedenis. De laatste gebruikersvraag
-  wordt geëmbed, de top 6 meest relevante chunks worden via cosine similarity (`pgvector`)
+  wordt doorzocht; de top 6 meest relevante chunks worden via PostgreSQL full-text search
   opgehaald en samen met het bedrijfsprofiel als context in de system prompt meegegeven.
   Claude streamt het antwoord terug.
 - **`GET` / `PUT /api/profile`** halen het bedrijfsprofiel op en slaan het op.
@@ -146,10 +149,9 @@ knowledge/            ← jouw .md/.txt/.pdf bestanden
 server/
   index.js            ← Express-server + /api/chat (streaming)
   ingest.js           ← npm run ingest
-  db.js               ← pg pool, schema, pgvector helpers
-  embeddings.js       ← Voyage AI embeddings
+  db.js               ← pg pool, schema, full-text helpers
   chunk.js            ← tekst opdelen in chunks
 client/               ← React (Vite) frontend
 Dockerfile            ← bouwt frontend + draait de server
-docker-compose.yml    ← app + PostgreSQL/pgvector
+docker-compose.yml    ← app + PostgreSQL
 ```

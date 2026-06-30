@@ -6,8 +6,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 
-import { pool, initDb, toVector } from './db.js';
-import { embedOne } from './embeddings.js';
+import { pool, initDb, TS_CONFIG } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -16,6 +15,16 @@ const CLIENT_DIST = path.resolve(__dirname, '..', 'client', 'dist');
 const MODEL = 'claude-sonnet-4-6';
 const TOP_K = 6;
 const MAX_TOKENS = 2048;
+
+// Bouw een OR-zoekopdracht (tsquery) van de woorden in de vraag, zodat een chunk
+// matcht als hij één of meer van de woorden bevat. Alleen letters/cijfers, dus
+// veilig voor to_tsquery.
+function toTsQuery(text) {
+  const terms = (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
+    .filter((w) => w.length > 1)
+    .slice(0, 40);
+  return [...new Set(terms)].join(' | ');
+}
 
 let anthropic;
 function getAnthropic() {
@@ -118,17 +127,22 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Geen gebruikersvraag gevonden.' });
     }
 
-    // 1. Embed de vraag.
-    const queryEmbedding = await embedOne(lastUser.content);
+    // 1. Bouw een zoekopdracht uit de woorden in de vraag.
+    const tsQuery = toTsQuery(lastUser.content);
 
-    // 2. Haal de top-K meest relevante chunks op via cosine similarity.
-    const { rows } = await pool.query(
-      `SELECT source, content, 1 - (embedding <=> $1) AS similarity
-         FROM documents
-        ORDER BY embedding <=> $1
-        LIMIT $2`,
-      [toVector(queryEmbedding), TOP_K]
-    );
+    // 2. Haal de top-K meest relevante chunks op via full-text search.
+    let rows = [];
+    if (tsQuery) {
+      const result = await pool.query(
+        `SELECT source, content, ts_rank(tsv, query) AS rank
+           FROM documents, to_tsquery('${TS_CONFIG}', $1) query
+          WHERE tsv @@ query
+          ORDER BY rank DESC
+          LIMIT $2`,
+        [tsQuery, TOP_K]
+      );
+      rows = result.rows;
+    }
 
     const contextBlock =
       rows.length > 0
@@ -188,7 +202,7 @@ async function start() {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       await initDb();
-      console.log('🗄️   Database klaar (pgvector + documents-tabel).');
+      console.log('🗄️   Database klaar (documents-tabel + full-text index).');
       break;
     } catch (err) {
       if (attempt === maxAttempts) {

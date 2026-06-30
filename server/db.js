@@ -18,32 +18,26 @@ export const pool = new Pool({
   ssl: needsSsl ? { rejectUnauthorized: false } : false,
 });
 
-// Dimensie van Voyage AI voyage-3
-export const EMBEDDING_DIM = 1024;
+// Postgres text-search configuratie (Nederlands voor stemming van NL-vragen).
+export const TS_CONFIG = 'dutch';
 
 /**
- * Zorgt dat de pgvector-extensie en de documents-tabel bestaan.
- * Idempotent: veilig om vaker aan te roepen.
+ * Zorgt dat de tabellen bestaan. Idempotent: veilig om vaker aan te roepen.
+ * Gebruikt PostgreSQL full-text search (geen externe embeddings nodig).
  */
 export async function initDb() {
-  await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
-
-  // Migratie: als er al een documents-tabel bestaat met een andere embedding-
-  // dimensie (bijv. de oude 1536 van OpenAI), gooi die weg zodat hij opnieuw met
-  // de juiste dimensie wordt aangemaakt. De inhoud wordt toch herbouwd via ingest.
-  const dimCheck = await pool.query(`
-    SELECT a.atttypmod AS dim
+  // Migratie: een oudere documents-tabel gebruikte een vector-kolom (embeddings).
+  // Die opzet is vervangen door full-text search; gooi de oude tabel weg zodat hij
+  // opnieuw met het juiste schema wordt aangemaakt. De inhoud komt terug via ingest.
+  const hasEmbedding = await pool.query(`
+    SELECT 1
       FROM pg_attribute a
       JOIN pg_class c ON c.oid = a.attrelid
      WHERE c.relname = 'documents' AND a.attname = 'embedding'
   `);
-  if (
-    dimCheck.rows.length > 0 &&
-    dimCheck.rows[0].dim !== -1 &&
-    dimCheck.rows[0].dim !== EMBEDDING_DIM
-  ) {
+  if (hasEmbedding.rows.length > 0) {
     console.log(
-      `🔁  Embedding-dimensie gewijzigd (${dimCheck.rows[0].dim} → ${EMBEDDING_DIM}); documents-tabel wordt opnieuw aangemaakt. Draai daarna opnieuw 'npm run ingest'.`
+      "🔁  Oude embeddings-tabel gevonden; documents wordt opnieuw aangemaakt voor full-text search. Draai daarna opnieuw 'npm run ingest'."
     );
     await pool.query('DROP TABLE documents');
   }
@@ -53,10 +47,13 @@ export async function initDb() {
       id         SERIAL PRIMARY KEY,
       source     TEXT NOT NULL,
       content    TEXT NOT NULL,
-      embedding  vector(${EMBEDDING_DIM}),
+      tsv        tsvector GENERATED ALWAYS AS (to_tsvector('${TS_CONFIG}', content)) STORED,
       created_at TIMESTAMPTZ DEFAULT now()
     )
   `);
+  await pool.query(
+    'CREATE INDEX IF NOT EXISTS documents_tsv_idx ON documents USING GIN (tsv)'
+  );
 
   // Eén-rijige tabel met het bedrijfsprofiel van de gebruiker (altijd id = 1).
   await pool.query(`
@@ -71,9 +68,4 @@ export async function initDb() {
     `INSERT INTO business_profile (id, data) VALUES (1, '{}'::jsonb)
      ON CONFLICT (id) DO NOTHING`
   );
-}
-
-/** Zet een JS-array om naar het pgvector literal-formaat: [1,2,3]. */
-export function toVector(arr) {
-  return `[${arr.join(',')}]`;
 }

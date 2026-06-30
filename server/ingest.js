@@ -6,14 +6,13 @@ import { fileURLToPath } from 'node:url';
 // die in de package-root anders een testbestand probeert te lezen.
 import pdf from 'pdf-parse/lib/pdf-parse.js';
 
-import { pool, initDb, toVector } from './db.js';
+import { pool, initDb } from './db.js';
 import { chunkText } from './chunk.js';
-import { embed } from './embeddings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const KNOWLEDGE_DIR = path.resolve(__dirname, '..', 'knowledge');
 const SUPPORTED = new Set(['.md', '.txt', '.pdf']);
-const EMBED_BATCH = 96;
+const INSERT_BATCH = 200;
 
 async function extractText(filePath, ext) {
   if (ext === '.pdf') {
@@ -71,21 +70,19 @@ async function main() {
       continue;
     }
 
-    // Embed en sla op in batches.
-    for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
-      const batch = chunks.slice(i, i + EMBED_BATCH);
-      const vectors = await embed(batch);
-
+    // Sla op in batches. De tsvector-kolom wordt automatisch gegenereerd.
+    for (let i = 0; i < chunks.length; i += INSERT_BATCH) {
+      const batch = chunks.slice(i, i + INSERT_BATCH);
       const values = [];
       const params = [];
       batch.forEach((content, j) => {
-        const base = j * 3;
-        values.push(`($${base + 1}, $${base + 2}, $${base + 3})`);
-        params.push(name, content, toVector(vectors[j]));
+        const base = j * 2;
+        values.push(`($${base + 1}, $${base + 2})`);
+        params.push(name, content);
       });
 
       await pool.query(
-        `INSERT INTO documents (source, content, embedding) VALUES ${values.join(', ')}`,
+        `INSERT INTO documents (source, content) VALUES ${values.join(', ')}`,
         params
       );
     }

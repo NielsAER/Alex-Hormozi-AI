@@ -1,0 +1,4 @@
+# Deze map bevat je knowledge base (.md, .txt, .pdf).
+# Dit bestand zorgt dat de map in git blijft bestaan, ook als hij leeg is.
+# Na het toevoegen of wijzigen van documenten: draai opnieuw `npm run ingest`
+# (of `docker compose exec app npm run ingest`).

@@ -18,8 +18,8 @@ export const pool = new Pool({
   ssl: needsSsl ? { rejectUnauthorized: false } : false,
 });
 
-// Dimensie van OpenAI text-embedding-3-small
-export const EMBEDDING_DIM = 1536;
+// Dimensie van Voyage AI voyage-3
+export const EMBEDDING_DIM = 1024;
 
 /**
  * Zorgt dat de pgvector-extensie en de documents-tabel bestaan.
@@ -27,6 +27,27 @@ export const EMBEDDING_DIM = 1536;
  */
 export async function initDb() {
   await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
+
+  // Migratie: als er al een documents-tabel bestaat met een andere embedding-
+  // dimensie (bijv. de oude 1536 van OpenAI), gooi die weg zodat hij opnieuw met
+  // de juiste dimensie wordt aangemaakt. De inhoud wordt toch herbouwd via ingest.
+  const dimCheck = await pool.query(`
+    SELECT a.atttypmod AS dim
+      FROM pg_attribute a
+      JOIN pg_class c ON c.oid = a.attrelid
+     WHERE c.relname = 'documents' AND a.attname = 'embedding'
+  `);
+  if (
+    dimCheck.rows.length > 0 &&
+    dimCheck.rows[0].dim !== -1 &&
+    dimCheck.rows[0].dim !== EMBEDDING_DIM
+  ) {
+    console.log(
+      `🔁  Embedding-dimensie gewijzigd (${dimCheck.rows[0].dim} → ${EMBEDDING_DIM}); documents-tabel wordt opnieuw aangemaakt. Draai daarna opnieuw 'npm run ingest'.`
+    );
+    await pool.query('DROP TABLE documents');
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS documents (
       id         SERIAL PRIMARY KEY,

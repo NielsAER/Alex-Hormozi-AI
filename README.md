@@ -10,7 +10,7 @@ uitsluitend op basis van die context.
 - **Backend:** Node.js + Express
 - **Frontend:** React (Vite) — donker thema, oranje accent (`#ff4f00`)
 - **LLM:** Anthropic Claude (`claude-sonnet-4-6`) via `@anthropic-ai/sdk` (streaming)
-- **Embeddings:** OpenAI `text-embedding-3-small`
+- **Embeddings:** Voyage AI `voyage-3` (door Anthropic aanbevolen; Claude heeft geen eigen embeddings-API)
 - **Vector-opslag:** PostgreSQL met de `pgvector`-extensie
 - **Deployment:** Docker Compose (app + database in containers)
 
@@ -43,7 +43,7 @@ git checkout claude/hormozi-mentor-rag-app-m40skj
 
 ```bash
 cp .env.example .env
-nano .env   # vul ANTHROPIC_API_KEY en OPENAI_API_KEY in
+nano .env   # vul ANTHROPIC_API_KEY en VOYAGE_API_KEY in
 ```
 
 `DATABASE_URL` hoef je **niet** in te vullen — Docker Compose zet die automatisch naar de
@@ -80,17 +80,14 @@ de tabel wordt eerst geleegd, dus je krijgt nooit duplicaten.
 
 ### Stap 6 — Gebruiken
 
-De app draait nu op **poort 3001** (standaard alleen op `127.0.0.1` van de VPS).
+De app draait nu publiek op **poort 3001** (alle interfaces). Open poort 3001 in je firewall
+(`sudo ufw allow 3001/tcp` en eventueel je cloud-firewall) en ga naar
+`http://JOUW-VPS-IP:3001`.
 
-- Snel testen vanaf je eigen machine via een SSH-tunnel:
-  ```bash
-  ssh -L 3001:localhost:3001 gebruiker@jouw-vps-ip
-  ```
-  Open daarna http://localhost:3001 in je browser.
-- Wil je de app **rechtstreeks publiek** bereikbaar maken op de VPS, verander dan in
-  `docker-compose.yml` de regel `'127.0.0.1:3001:3001'` in `'3001:3001'` en open poort 3001
-  in je firewall. (Voor een domein met HTTPS zet je later een reverse proxy zoals nginx
-  ervoor — laat het weten, dan voeg ik die config toe.)
+> ⚠️ Dit is kale HTTP zonder versleuteling en zonder wachtwoord. Prima om te testen; voor
+> productie op een domein zet je er een reverse proxy met HTTPS (nginx + Let's Encrypt) voor.
+> Wil je alleen lokaal testen, zet de poort-binding in `docker-compose.yml` terug naar
+> `'127.0.0.1:3001:3001'` en gebruik een SSH-tunnel (`ssh -L 3001:localhost:3001 ...`).
 
 ### Handige commando's
 
@@ -113,7 +110,7 @@ Heb je Node 20+ en een eigen PostgreSQL met pgvector? Dan kun je het ook direct 
 
 ```bash
 npm run install:all          # installeert backend + frontend dependencies
-cp .env.example .env         # vul ANTHROPIC_API_KEY, OPENAI_API_KEY en DATABASE_URL in
+cp .env.example .env         # vul ANTHROPIC_API_KEY, VOYAGE_API_KEY en DATABASE_URL in
 npm run ingest               # knowledge base inladen
 npm run dev                  # backend (3001) + Vite dev-server (5173) met hot reload
 ```
@@ -150,7 +147,7 @@ server/
   index.js            ← Express-server + /api/chat (streaming)
   ingest.js           ← npm run ingest
   db.js               ← pg pool, schema, pgvector helpers
-  embeddings.js       ← OpenAI embeddings
+  embeddings.js       ← Voyage AI embeddings
   chunk.js            ← tekst opdelen in chunks
 client/               ← React (Vite) frontend
 Dockerfile            ← bouwt frontend + draait de server

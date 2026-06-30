@@ -21,7 +21,7 @@ services:
         condition: service_healthy
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY}
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/hormozi
       PORT: 3001
     ports:

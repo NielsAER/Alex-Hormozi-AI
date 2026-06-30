@@ -25,9 +25,10 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/hormozi
       PORT: 3001
     ports:
-      # Alleen op localhost van de VPS publiceren. Zet een reverse proxy ervoor
-      # of verander dit in "3001:3001" om de poort publiek open te zetten.
-      - '127.0.0.1:3001:3001'
+      # Publiek bereikbaar op poort 3001 (alle interfaces). Let op: dit is kale
+      # HTTP zonder versleuteling. Zet er later een reverse proxy met HTTPS voor
+      # als de app gevoelige data verwerkt of op een domein moet draaien.
+      - '0.0.0.0:3001:3001'
     volumes:
       # Je documenten staan op de host; zo kun je bestanden toevoegen en opnieuw
       # ingesten zonder de image te herbouwen.
